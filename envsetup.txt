@@ -1,0 +1,140 @@
+Perfect! Here's the **full setup** including a `createClient()` function that automatically picks the right URLs based on your `.env` variables.
+
+---
+
+## 📁 1. Keep your `.env.*` files as defined earlier
+
+Already good ✅ — they contain:
+
+```env
+VITE_BACKEND_HTTP=http://localhost:3000/graphql
+VITE_BACKEND_WS=ws://localhost:3000/graphql
+VITE_FALLBACK_URL=http://localhost:3000
+VITE_PORT=3000
+VITE_DEBUG=true
+```
+
+---
+
+## 🧠 2. `src/config.js` — reads and exports values
+
+```js
+const config = {
+  httpUrl: import.meta.env.VITE_BACKEND_HTTP,
+  wsUrl: import.meta.env.VITE_BACKEND_WS,
+  fallbackUrl: import.meta.env.VITE_FALLBACK_URL,
+  port: import.meta.env.VITE_PORT,
+  isDebug: import.meta.env.VITE_DEBUG === 'true',
+};
+
+export default config;
+```
+
+---
+
+## 🔌 3. `src/graphql/client.js` — the `createClient()` function
+
+This uses `@urql/core`, `apollo-client`, or similar. Here's an example using **Apollo Client**:
+
+```bash
+npm install @apollo/client graphql
+```
+
+Then:
+
+```js
+// src/graphql/client.js
+import { ApolloClient, InMemoryCache, HttpLink, split } from '@apollo/client';
+import { GraphQLWsLink } from '@apollo/client/link/subscriptions';
+import { createClient as createWsClient } from 'graphql-ws';
+import { getMainDefinition } from '@apollo/client/utilities';
+import config from '../config';
+
+export function createApolloClient() {
+  const httpLink = new HttpLink({
+    uri: config.httpUrl,
+  });
+
+  const wsLink = new GraphQLWsLink(
+    createWsClient({
+      url: config.wsUrl,
+      retryAttempts: 5,
+    })
+  );
+
+  // Use WebSocket for subscriptions, HTTP for queries/mutations
+  const splitLink = split(
+    ({ query }) => {
+      const definition = getMainDefinition(query);
+      return (
+        definition.kind === 'OperationDefinition' &&
+        definition.operation === 'subscription'
+      );
+    },
+    wsLink,
+    httpLink
+  );
+
+  return new ApolloClient({
+    link: splitLink,
+    cache: new InMemoryCache(),
+    connectToDevTools: config.isDebug,
+  });
+}
+```
+
+---
+
+## ⚛️ 4. `src/main.jsx` — wrap your app with ApolloProvider
+
+```js
+import React from 'react';
+import ReactDOM from 'react-dom/client';
+import App from './App';
+import { ApolloProvider } from '@apollo/client';
+import { createApolloClient } from './graphql/client';
+
+const client = createApolloClient();
+
+ReactDOM.createRoot(document.getElementById('root')).render(
+  <React.StrictMode>
+    <ApolloProvider client={client}>
+      <App />
+    </ApolloProvider>
+  </React.StrictMode>
+);
+```
+
+---
+
+## ✅ 5. Now in your React components
+
+You can now just use your queries/mutations/subscriptions normally:
+
+```js
+import { useQuery, gql } from '@apollo/client';
+
+const GET_USERS = gql`
+  query {
+    users {
+      id
+      name
+    }
+  }
+`;
+
+function Users() {
+  const { loading, error, data } = useQuery(GET_USERS);
+
+  if (loading) return <p>Loading...</p>;
+  if (error) return <p>Error :(</p>;
+
+  return data.users.map((user) => (
+    <div key={user.id}>{user.name}</div>
+  ));
+}
+```
+
+---
+
+Want the same kind of `createClient()` version for **Redux Toolkit Query** or `urql` instead?
